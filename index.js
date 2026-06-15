@@ -1,4 +1,4 @@
-// ==================== FILE: server.js (GỘP TOÀN BỘ KHÔNG RÚT GỌN) ====================
+// ==================== FILE: server.js (GỘP TOÀN BỘ - ĐÃ SỬA LỊCH SỬ) ====================
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -96,67 +96,92 @@ class Zalopay {
     }
     async getTransactions2() {
         try {
-            const history_url = 'https://sapi.zalopay.vn/v2/history/transactions?page_size=20';
-            const headers = {
-                'Cookie': this.config.cookie || '',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0'
-            };
-            const response_history = await axios.get(history_url, { headers });
-            const data_history = response_history.data;
-            const formatted_transactions = [];
-            let counter = 0;
-            if (data_history && data_history.data && Array.isArray(data_history.data.transactions)) {
-                for (let transaction of data_history.data.transactions) {
-                    if (transaction.trans_id) {
-                        const trans_id = transaction.trans_id;
-                        const url_detail = `https://sapi.zalopay.vn/v2/history/transactions/${trans_id}?type=1`;
-                        const response_detail = await axios.get(url_detail, { headers });
-                        const data_detail = response_detail.data;
-                        if (data_detail && data_detail.data && data_detail.data.transaction) {
-                            const trans = data_detail.data.transaction;
-                            let noidung = '';
-                            if (trans.template_info && Array.isArray(trans.template_info.custom_fields)) {
-                                for (let field of trans.template_info.custom_fields) {
-                                    if (field.name === 'Lời nhắn') {
-                                        noidung = field.value || '';
-                                        break;
-                                    }
-                                }
-                            }
-                            const type = (trans.sign && trans.sign == 1) ? 'IN' : 'OUT';
-                            const transactionDate = trans.trans_time ? new Date(trans.trans_time).toISOString().substring(0, 10) : null;
-                            const transactionID = trans.trans_id === '' ? trans.app_trans_id : trans.trans_id;
-                            formatted_transactions.push({
-                                transactionID,
-                                amount: trans.charge_amount || trans.trans_amount || null,
-                                description: (trans.description + ' ' + noidung).trim(),
-                                transactionDate,
-                                type
-                            });
-                        }
-                        counter++;
-                        if (counter % 10 === 0) {
-                            await new Promise(r => setTimeout(r, 1500));
+            // Lấy nhiều trang để có đủ lịch sử
+            let allTransactions = [];
+            let pageToken = '';
+            let hasMore = true;
+            let maxPages = 5; // giới hạn 5 trang (khoảng 100 giao dịch)
+            let pageCount = 0;
+            
+            while (hasMore && pageCount < maxPages) {
+                const url = pageToken 
+                    ? `https://sapi.zalopay.vn/v2/history/transactions?page_size=20&page_token=${encodeURIComponent(pageToken)}`
+                    : 'https://sapi.zalopay.vn/v2/history/transactions?page_size=20';
+                
+                const headers = {
+                    'Cookie': this.config.cookie || '',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0'
+                };
+                const response = await axios.get(url, { headers });
+                const data = response.data;
+                
+                if (data && data.data && Array.isArray(data.data.transactions)) {
+                    for (let tx of data.data.transactions) {
+                        if (tx.trans_id) {
+                            allTransactions.push(tx);
                         }
                     }
+                    // Kiểm tra trang tiếp theo
+                    pageToken = data.data.next_page_token || '';
+                    hasMore = !!pageToken && data.data.transactions.length > 0;
+                    pageCount++;
+                    // Chờ 0.5s tránh rate limit
+                    await new Promise(r => setTimeout(r, 500));
+                } else {
+                    hasMore = false;
                 }
-                return {
-                    status: 'success',
-                    msg: 'Thành công',
-                    transactions: formatted_transactions
-                };
-            } else {
-                return {
-                    status: 'error',
-                    msg: 'Không tìm thấy thông tin giao dịch.',
-                    transactions: [],
-                    raw_response: data_history
-                };
             }
+            
+            // Lấy chi tiết từng giao dịch (chỉ lấy 20 gần nhất để tránh quá tải)
+            const formatted = [];
+            const recentTx = allTransactions.slice(0, 30);
+            let counter = 0;
+            
+            for (let tx of recentTx) {
+                if (!tx.trans_id) continue;
+                const detailUrl = `https://sapi.zalopay.vn/v2/history/transactions/${tx.trans_id}?type=1`;
+                const headers = {
+                    'Cookie': this.config.cookie || '',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0'
+                };
+                try {
+                    const detailResp = await axios.get(detailUrl, { headers });
+                    const detail = detailResp.data;
+                    if (detail && detail.data && detail.data.transaction) {
+                        const trans = detail.data.transaction;
+                        let note = '';
+                        if (trans.template_info && Array.isArray(trans.template_info.custom_fields)) {
+                            const field = trans.template_info.custom_fields.find(f => f.name === 'Lời nhắn');
+                            if (field) note = field.value || '';
+                        }
+                        const type = (trans.sign && trans.sign == 1) ? 'IN' : 'OUT';
+                        const date = trans.trans_time ? new Date(trans.trans_time).toLocaleString('vi-VN') : '';
+                        formatted.push({
+                            transactionID: trans.trans_id || trans.app_trans_id,
+                            amount: trans.charge_amount || trans.trans_amount || 0,
+                            description: (trans.description || '') + (note ? ' - ' + note : ''),
+                            transactionDate: date,
+                            type: type,
+                            balance: tx.balance_snapshot || 0
+                        });
+                    }
+                    counter++;
+                    if (counter % 5 === 0) await new Promise(r => setTimeout(r, 300));
+                } catch(e) {
+                    console.error('Lỗi lấy chi tiết giao dịch:', e.message);
+                }
+            }
+            
+            return {
+                status: 'success',
+                msg: 'Lấy lịch sử thành công',
+                transactions: formatted
+            };
         } catch (e) {
+            console.error('getTransactions2 error:', e);
             return {
                 status: 'error',
-                msg: 'Phiên đăng nhập đã hết hạn vui lòng cập nhật lại cookie',
+                msg: 'Lỗi: ' + e.message,
                 transactions: []
             };
         }
@@ -217,11 +242,9 @@ class Zalopay {
     async SendMoney_web(phone, msg, amount) {
         console.log('[SendMoney_web] Step 1: get_info_web for phone:', phone);
         const info = await this.get_info_web(phone);
-        console.log('[SendMoney_web] get_info_web response:', JSON.stringify(info, null, 2));
         if (!info.data) return { status: 'error', message: info.error?.details?.localized_message?.message || 'SĐT không hợp lệ' };
         console.log('[SendMoney_web] Step 2: Order_Money_web amount:', amount);
         const order = await this.Order_Money_web(info, msg, amount);
-        console.log('[SendMoney_web] Order_Money_web response:', JSON.stringify(order, null, 2));
         if (!order || (!order.data && !order.ac_order)) return { status: 'error', message: order?.error?.details?.localized_message?.message || 'Lỗi tạo đơn chuyển tiền' };
         const orderData = order.ac_order || order.data || {};
         order.app_id = orderData.app_id;
@@ -233,9 +256,7 @@ class Zalopay {
         order.description = msg;
         order.mac = "";
         order.item = "[]";
-        console.log('[SendMoney_web] Step 3: Get_assets_web');
         const assets = await this.Get_assets_web(order);
-        console.log('[SendMoney_web] Get_assets_web response:', JSON.stringify(assets, null, 2));
         let source_of_fund = null;
         if (assets && assets.data) {
             if (assets.data.source_of_fund) {
@@ -248,9 +269,7 @@ class Zalopay {
             return { status: 'error', message: source_of_fund?.message || 'Lỗi nguồn tiền/Số dư' };
         }
         if (Number(source_of_fund.balance) < Number(amount)) return { status: 'error', message: 'Số Dư Không Đủ' };
-        console.log('[SendMoney_web] Step 4: Pay_Money_web');
         const pay = await this.Pay_Money_web(assets);
-        console.log('[SendMoney_web] Pay_Money_web response:', JSON.stringify(pay, null, 2));
         if (!pay || pay.error) return { status: 'error', message: pay.error?.details?.localized_message?.message || 'Chuyển tiền thất bại' };
         const orderDataRes = order.ac_order || order.data || {};
         if (pay.data && (pay.data.is_processing === 1 || pay.data.is_processing === true)) {
@@ -428,8 +447,6 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 const PORT = 8000;
-
-app.use(express.static('public'));
 
 app.get('/api/accounts', async (req, res) => {
     try {
@@ -634,9 +651,7 @@ app.post('/api.php', async (req, res) => {
     }
 });
 
-app.use(express.static('public'));
-
-// ========================== NHÚNG TOÀN BỘ HTML VÀO ROUTE GỐC ==========================
+// ========================== NHÚNG TOÀN BỘ HTML (ĐÃ SỬA HIỂN THỊ SỐ DƯ VÀ LỊCH SỬ) ==========================
 const htmlContent = `<!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -653,9 +668,9 @@ const htmlContent = `<!DOCTYPE html>
         .zalo-header { background: #0068ff; color: white; border-radius: 15px 15px 0 0; padding: 15px; }
         .avatar-zalo { width: 60px; height: 60px; border-radius: 50%; border: 2px solid white; object-fit: cover; }
         .balance-text { font-size: 1.2rem; font-weight: bold; color: #28a745; }
-        /* Modern Loader */
         .loader { border: 4px solid #f3f3f3; border-radius: 50%; border-top: 4px solid #0068ff; width: 30px; height: 30px; animation: spin 1s linear infinite; display: inline-block; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .table-small td, .table-small th { font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -688,13 +703,12 @@ const htmlContent = `<!DOCTYPE html>
         </div>
     </div>
 
-    
     <div class="row" id="accountsList">
         <div class="col-12 text-center text-muted py-5"><div class="loader"></div><br><small>Đang tải tài khoản...</small></div>
     </div>
 </div>
 
-
+<!-- Modal chuyển tiền ZaloPay -->
 <div class="modal fade" id="modalTransfer" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -717,6 +731,7 @@ const htmlContent = `<!DOCTYPE html>
     </div>
 </div>
 
+<!-- Modal chuyển tiền ngân hàng -->
 <div class="modal fade" id="modalBank" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -762,17 +777,27 @@ const htmlContent = `<!DOCTYPE html>
     </div>
 </div>
 
+<!-- Modal lịch sử giao dịch -->
 <div class="modal fade" id="modalHistory" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Lịch Sử Giao Dịch</h5>
+                <h5 class="modal-title">Lịch Sử Giao Dịch (30 gần nhất)</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div class="table-responsive">
-                    <table class="table table-bordered table-striped text-small">
-                        <thead><tr><th>Mã GD</th><th>Thời gian</th><th>Số tiền</th><th>Nội dung</th><th>Số dư</th></tr></thead>
+                    <table class="table table-bordered table-striped table-small">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Mã GD</th>
+                                <th>Thời gian</th>
+                                <th>Số tiền</th>
+                                <th>Loại</th>
+                                <th>Nội dung</th>
+                                <th>Số dư sau GD</th>
+                            </tr>
+                        </thead>
                         <tbody id="historyBody"></tbody>
                     </table>
                 </div>
@@ -787,6 +812,12 @@ const htmlContent = `<!DOCTYPE html>
 <script>
     const API_URL = '/api.php';
     const API_ACCOUNTS = '/api/accounts';
+    
+    function formatMoney(amount) {
+        if (amount === undefined || amount === null) return '0₫';
+        return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+    }
+    
     function loadAccounts() {
         $.getJSON(API_ACCOUNTS, function(res) {
             if (res.status === 'success') {
@@ -803,7 +834,8 @@ const htmlContent = `<!DOCTYPE html>
                                         : '<span class="badge bg-danger">Die</span>';
                     const avatar = row.avatar || 'https://via.placeholder.com/60';
                     const name = row.name || 'Chưa có tên';
-                    const timeUpdate = new Date((row.time_login || 0) * 1000).toLocaleString();
+                    const timeUpdate = row.time_login ? new Date(row.time_login * 1000).toLocaleString() : 'Chưa đăng nhập';
+                    const balance = row.balance || 0;
                     container.append(\`
                         <div class="col-md-6 col-lg-4">
                             <div class="card card-zalo">
@@ -815,7 +847,7 @@ const htmlContent = `<!DOCTYPE html>
                                     \${statusBadge}
                                 </div>
                                 <div class="card-body">
-                                    <p class="mb-1">Số dư: <span class="balance-text">\${formatMoney(row.balance || 0)}</span></p>
+                                    <p class="mb-1">Số dư: <span class="balance-text">\${formatMoney(balance)}</span></p>
                                     <p class="mb-1 text-muted small">Cập nhật: \${timeUpdate}</p>
                                     <hr>
                                     <div class="d-grid gap-2">
@@ -832,9 +864,12 @@ const htmlContent = `<!DOCTYPE html>
                         </div>
                     \`);
                 });
+            } else {
+                Swal.fire('Lỗi', 'Không thể tải danh sách tài khoản', 'error');
             }
         });
     }
+    
     $(document).ready(function() { 
         loadAccounts(); 
         $.getJSON('https://api.vietqr.io/v2/banks', function(res) {
@@ -852,6 +887,7 @@ const htmlContent = `<!DOCTYPE html>
             }
         });
     });
+    
     $('#loginForm').submit(function(e){
         e.preventDefault();
         Swal.fire({title: 'Đang xử lý...', didOpen: () => { Swal.showLoading() }});
@@ -863,6 +899,7 @@ const htmlContent = `<!DOCTYPE html>
             }
         });
     });
+    
     function reloadBalance(id){
         Swal.fire({title: 'Đang cập nhật...', didOpen: () => { Swal.showLoading() }});
         $.post(API_URL, {action: 'RELOADBALANCE', id: id}, function(res){
@@ -871,26 +908,42 @@ const htmlContent = `<!DOCTYPE html>
             } else { Swal.fire('Lỗi', res.msg, 'error'); }
         });
     }
+    
     function viewHistory(phone){
         $('#modalHistory').modal('show');
-        $('#historyBody').html('<tr><td colspan="5" class="text-center">Đang tải...</td></tr>');
-        $.post(API_URL, {action: 'history', phone: phone, limit: 10}, function(res){
-            if(res.status == 'success' && res.transactions){
+        $('#historyBody').html('<tr><td colspan="6" class="text-center">Đang tải lịch sử giao dịch...<div class="loader mt-2"></div></td></tr>');
+        $.post(API_URL, {action: 'history', phone: phone}, function(res){
+            if(res.status == 'success' && res.transactions && res.transactions.length > 0){
                 let html = '';
                 res.transactions.forEach(item => {
-                    let money = item.type === 'IN' ? '<span class="text-success">+'+formatMoney(item.amount)+'</span>' : '<span class="text-danger">-'+formatMoney(item.amount)+'</span>';
-                    html += '<tr><td><small>'+item.transactionID+'</small></td><td><small>'+item.transactionDate+'</small></td><td>'+money+'</td><td><small>'+item.description+'</small></td><td></td></tr>';
+                    let moneyClass = item.type === 'IN' ? 'text-success' : 'text-danger';
+                    let sign = item.type === 'IN' ? '+' : '-';
+                    let typeText = item.type === 'IN' ? 'Nhận tiền' : 'Chuyển tiền';
+                    html += \`
+                        <tr>
+                            <td><small>\${item.transactionID}</small></td>
+                            <td><small>\${item.transactionDate || 'Không rõ'}</small></td>
+                            <td class="\${moneyClass} fw-bold">\${sign} \${formatMoney(item.amount)}</td>
+                            <td><span class="badge bg-\${item.type === 'IN' ? 'success' : 'danger'}">\${typeText}</span></td>
+                            <td><small>\${item.description || 'Không có nội dung'}</small></td>
+                            <td>\${formatMoney(item.balance || 0)}</td>
+                        </tr>
+                    \`;
                 });
                 $('#historyBody').html(html);
             } else {
-                $('#historyBody').html('<tr><td colspan="5" class="text-center text-danger">'+res.msg+'</td></tr>');
+                $('#historyBody').html('<tr><td colspan="6" class="text-center text-danger">' + (res.msg || 'Không có giao dịch hoặc lỗi cookie') + '</td></tr>');
             }
+        }).fail(function() {
+            $('#historyBody').html('<tr><td colspan="6" class="text-center text-danger">Lỗi kết nối server</td></tr>');
         });
     }
+    
     function openModalTransfer(phone, pass){
         $('#tf_account').val(phone); $('#tf_password').val(pass);
         $('#modalTransfer').modal('show');
     }
+    
     $('#formTransfer').submit(function(e){
         e.preventDefault();
         Swal.fire({
@@ -914,11 +967,13 @@ const htmlContent = `<!DOCTYPE html>
             }
         });
     });
+    
     function openModalBank(phone, pass){
         $('#bk_account').val(phone); $('#bk_password').val(pass);
         $('#modalBank').modal('show');
         $('#bk_name_display').val(''); $('#bk_name_hidden').val(''); $('#bk_stk').val('');
     }
+    
     function checkNameBank(){
         let phone = $('#bk_account').val();
         let stk = $('#bk_stk').val();
@@ -938,6 +993,7 @@ const htmlContent = `<!DOCTYPE html>
             }
         });
     }
+    
     $('#formBank').submit(function(e){
         e.preventDefault();
         if($('#bk_name_hidden').val() == '') {
@@ -965,6 +1021,7 @@ const htmlContent = `<!DOCTYPE html>
             }
         });
     });
+    
     function removeAcc(id){
         Swal.fire({
             title: 'Xóa tài khoản?',
@@ -981,9 +1038,6 @@ const htmlContent = `<!DOCTYPE html>
             }
         });
     }
-    function formatMoney(amount) {
-        return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
-    }
 </script>
 </body>
 </html>`;
@@ -993,5 +1047,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`ZaloPay Node.js API is running on http://0.0.0.0:${PORT}`);
+    console.log(`ZaloPay API chạy tại http://0.0.0.0:${PORT}`);
 });
