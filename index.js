@@ -75,13 +75,13 @@ class Zalopay {
         } catch (e) { return e.response ? e.response.data : { error: e.message }; }
     }
     async ZaloLogin_Cookie() {
-        return await this.getRequest('https://sapi.zalopay.vn/v2/user/profile/kyc', { 'Referer': `https://social.zalopay.vn/spa/v2?c=1&c_time=${Date.now()}` });
+        return await this.getRequest('https://sapi.zalopay.vn/v2/user/profile/kyc', { 'Referer': 'https://social.zalopay.vn/spa/v2?c=1&c_time=' + Date.now() });
     }
     async getBalance_web() {
         return await this.getRequest('https://api.zalopay.vn/v2/user/balance', { 'Host': 'api.zalopay.vn' });
     }
     async income_outcome_web(month, year) {
-        return await this.getRequest(`https://sapi.zalopay.vn/v2/history/income-outcome?days=5&months=${month}&year=${year}`);
+        return await this.getRequest('https://sapi.zalopay.vn/v2/history/income-outcome?days=5&months=' + month + '&year=' + year);
     }
     async getTransactions2() {
         try {
@@ -95,7 +95,7 @@ class Zalopay {
                 for (let transaction of data_history.data.transactions) {
                     if (transaction.trans_id) {
                         const trans_id = transaction.trans_id;
-                        const url_detail = `https://sapi.zalopay.vn/v2/history/transactions/${trans_id}?type=1`;
+                        const url_detail = 'https://sapi.zalopay.vn/v2/history/transactions/' + trans_id + '?type=1';
                         const response_detail = await axios.get(url_detail, { headers });
                         const data_detail = response_detail.data;
                         if (data_detail && data_detail.data && data_detail.data.transaction) {
@@ -125,7 +125,7 @@ class Zalopay {
     }
     async get_info_web(phone) {
         let p = phone.startsWith('0') ? '84' + phone.substring(1) : phone;
-        return await this.getRequest(`https://sapi.zalopay.vn/v3/ibft/web/get-user-info?phone=${p}`, { 'Referer': 'https://social.zalopay.vn/spa/v2/home-transfer' });
+        return await this.getRequest('https://sapi.zalopay.vn/v3/ibft/web/get-user-info?phone=' + p, { 'Referer': 'https://social.zalopay.vn/spa/v2/home-transfer' });
     }
     async Order_Money_web(info, msg, amount, cfm_token = '') {
         const data = {
@@ -164,7 +164,7 @@ class Zalopay {
             promotion_token: "", service_id: 19,
             sof_token: assets.data.sources_of_fund[0].sof_token,
             user_fee: [0], zalo_token: "",
-            callback_url: `zalo://qr/jp/nibvlsoj2j?cb_t=dotp&k=${Date.now()}&otp=`,
+            callback_url: 'zalo://qr/jp/nibvlsoj2j?cb_t=dotp&k=' + Date.now() + '&otp=',
             card: null, is_zmp: false
         };
         return await this.postRequest('https://sapi.zalopay.vn/v2/cashier/pay', data, true);
@@ -231,7 +231,7 @@ class Zalopay {
             authenticator: { authen_type: 1, auth_info: "eyJhdXRoX3R5cGUiOjF9", pin: this.sha256(this.config.password) },
             order_fee: [0], order_token: assets.data.order_token, promotion_token: "", service_id: 19,
             sof_token: assets.data.sources_of_fund[0].sof_token, user_fee: [0], zalo_token: "",
-            callback_url: `zalo://qr/jp/nibvlsoj2j?cb_t=dotp&k=${Date.now()}&otp=`, card: null, is_zmp: false
+            callback_url: 'zalo://qr/jp/nibvlsoj2j?cb_t=dotp&k=' + Date.now() + '&otp=', card: null, is_zmp: false
         };
         return await this.postRequest('https://sapi.zalopay.vn/v2/cashier/pay', data, true);
     }
@@ -244,7 +244,7 @@ class Zalopay {
         let first6 = stk.substring(0, 6);
         order.app_id = order.ac_order.app_id; order.app_trans_id = order.ac_order.app_trans_id; order.order_token = order.ac_order.order_token;
         order.app_time = Date.now(); order.app_user = "ZaloPay"; order.amount = amount; order.description = description; order.mac = "";
-        order.item = `{"ibfttype":2,"ibfttranstype":1,"ext":"Người nhận:${info.bank_holder_name}\\tNgân hàng:${config_bank.bankcode}\\tSố tài khoản:**** ${numberBank4}","number":"","bcbankcode":"${config_bank.bcbankcode}","bimid":"","bimtoken":"","first6no":"${first6}","last4no":"${numberBank4}"}`;
+        order.item = '{"ibfttype":2,"ibfttranstype":1,"ext":"Người nhận:' + info.bank_holder_name + '\\tNgân hàng:' + config_bank.bankcode + '\\tSố tài khoản:**** ' + numberBank4 + '","number":"","bcbankcode":"' + config_bank.bcbankcode + '","bimid":"","bimtoken":"","first6no":"' + first6 + '","last4no":"' + numberBank4 + '"}';
         const assets = await this.assets_bank_web(order);
         let source_of_fund = null;
         if (assets && assets.data) {
@@ -264,7 +264,7 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Phục vụ giao diện HTML trực tiếp từ code
+// Giao diện HTML (đã sửa lỗi backtick, dùng nối chuỗi ở những chỗ cần thiết)
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -485,30 +485,30 @@ app.get('/', (req, res) => {
                     const avatar = row.avatar || 'https://via.placeholder.com/70';
                     const name = row.name || 'Ẩn danh';
                     const timeUpdate = new Date((row.time_login || 0) * 1000).toLocaleString();
-                    container.append(\`
-                        <div class="col-md-6 col-lg-4">
-                            <div class="account-card">
-                                <div class="d-flex align-items-center justify-content-between mb-3">
-                                    <div class="d-flex align-items-center">
-                                        <img src="\${avatar}" class="avatar-img me-3">
-                                        <div><h5 class="mb-0" style="color: white;">\${name}</h5><small class="text-muted">\${row.phone}</small></div>
-                                    </div>
-                                    \${statusBadge}
-                                </div>
-                                <p class="mb-1"><span class="text-light">Số dư:</span> <span class="balance-glow">\${formatMoney(row.balance || 0)}</span></p>
-                                <p class="text-muted small mb-3">Cập nhật: \${timeUpdate}</p>
-                                <div class="d-grid gap-2">
-                                    <button onclick="reloadBalance('\${row.id}')" class="btn btn-neon btn-sm"><i class="fa-solid fa-rotate"></i> Cập nhật số dư</button>
-                                    <div class="btn-group">
-                                        <button onclick="openModalTransfer('\${row.phone}', '\${row.password}')" class="btn btn-neon btn-sm"><i class="fa-solid fa-paper-plane"></i> Chuyển Zalo</button>
-                                        <button onclick="openModalBank('\${row.phone}', '\${row.password}')" class="btn btn-neon-pink btn-sm"><i class="fa-solid fa-building-columns"></i> Bank</button>
-                                    </div>
-                                    <button onclick="viewHistory('\${row.phone}')" class="btn btn-neon-green btn-sm text-dark"><i class="fa-solid fa-history"></i> Lịch sử</button>
-                                    <button onclick="removeAcc('\${row.id}')" class="btn btn-outline-danger btn-sm"><i class="fa-solid fa-trash"></i> Xóa</button>
-                                </div>
-                            </div>
-                        </div>
-                    \`);
+                    container.append(
+                        '<div class="col-md-6 col-lg-4">' +
+                            '<div class="account-card">' +
+                                '<div class="d-flex align-items-center justify-content-between mb-3">' +
+                                    '<div class="d-flex align-items-center">' +
+                                        '<img src="' + avatar + '" class="avatar-img me-3">' +
+                                        '<div><h5 class="mb-0" style="color: white;">' + name + '</h5><small class="text-muted">' + row.phone + '</small></div>' +
+                                    '</div>' +
+                                    statusBadge +
+                                '</div>' +
+                                '<p class="mb-1"><span class="text-light">Số dư:</span> <span class="balance-glow">' + formatMoney(row.balance || 0) + '</span></p>' +
+                                '<p class="text-muted small mb-3">Cập nhật: ' + timeUpdate + '</p>' +
+                                '<div class="d-grid gap-2">' +
+                                    '<button onclick="reloadBalance(\'' + row.id + '\')" class="btn btn-neon btn-sm"><i class="fa-solid fa-rotate"></i> Cập nhật số dư</button>' +
+                                    '<div class="btn-group">' +
+                                        '<button onclick="openModalTransfer(\'' + row.phone + '\', \'' + row.password + '\')" class="btn btn-neon btn-sm"><i class="fa-solid fa-paper-plane"></i> Chuyển Zalo</button>' +
+                                        '<button onclick="openModalBank(\'' + row.phone + '\', \'' + row.password + '\')" class="btn btn-neon-pink btn-sm"><i class="fa-solid fa-building-columns"></i> Bank</button>' +
+                                    '</div>' +
+                                    '<button onclick="viewHistory(\'' + row.phone + '\')" class="btn btn-neon-green btn-sm text-dark"><i class="fa-solid fa-history"></i> Lịch sử</button>' +
+                                    '<button onclick="removeAcc(\'' + row.id + '\')" class="btn btn-outline-danger btn-sm"><i class="fa-solid fa-trash"></i> Xóa</button>' +
+                                '</div>' +
+                            '</div>' +
+                        '</div>'
+                    );
                 });
             }
         });
@@ -683,7 +683,7 @@ app.post('/api.php', async (req, res) => {
                     }
                     if (balanceReq.data?.balance !== undefined) account.balance = balanceReq.data.balance;
                     await saveAccount(account);
-                    return res.json({ status: 'success', msg: \`Cập nhật số dư thành công: \${account.balance}đ\` });
+                    return res.json({ status: 'success', msg: 'Cập nhật số dư thành công: ' + account.balance + 'đ' });
                 } else {
                     account.status = 'out'; account.errorDesc = 'Cookie Die';
                     await saveAccount(account);
@@ -727,7 +727,7 @@ app.post('/api.php', async (req, res) => {
                     const balanceReq = await z.getBalance_web();
                     if (!balanceReq.error && balanceReq.data?.balance !== undefined) { account.balance = balanceReq.data.balance; await saveAccount(account); }
                     await logTransaction({ type_gd: 'sendmoney', tranId: send.data.zp_trans_id, partnerId: receiver, amount, comment, status: 'success', message: 'Chuyển Tiền Thành Công', user_id: 1 });
-                    return res.json({ status: 'success', msg: \`Chuyển thành công. Số dư: \${account.balance || 0}\` });
+                    return res.json({ status: 'success', msg: 'Chuyển thành công. Số dư: ' + (account.balance || 0) });
                 }
             }
             case 'CreateQR': {
@@ -763,7 +763,7 @@ app.post('/api.php', async (req, res) => {
                     const balanceReq = await z.getBalance_web();
                     if (!balanceReq.error && balanceReq.data?.balance !== undefined) { account.balance = balanceReq.data.balance; await saveAccount(account); }
                     await logTransaction({ type_gd: 'sendbank', tranId: send.data.zp_trans_id, partnerId: stk, partnerName: name, amount, comment, status: 'success', user_id: 1 });
-                    return res.json({ status: 'success', msg: \`Chuyển Bank thành công. Số dư: \${account.balance || 0}\` });
+                    return res.json({ status: 'success', msg: 'Chuyển Bank thành công. Số dư: ' + (account.balance || 0) });
                 }
             }
             case 'ANTI': {
@@ -779,9 +779,9 @@ app.post('/api.php', async (req, res) => {
             default: return res.json({ status: 'error', msg: 'Unknown Action' });
         }
     } catch (e) {
-        return res.json({ status: 'error', msg: \`Lỗi Server: \${e.message}\`, stack: e.stack });
+        return res.json({ status: 'error', msg: 'Lỗi Server: ' + e.message, stack: e.stack });
     }
 });
 
 const PORT = 8000;
-app.listen(PORT, '0.0.0.0', () => console.log(\`⚡ ZaloPay CyberVault running on http://0.0.0.0:\${PORT}\`));
+app.listen(PORT, '0.0.0.0', () => console.log('⚡ ZaloPay CyberVault running on http://0.0.0.0:' + PORT));
