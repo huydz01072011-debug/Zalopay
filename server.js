@@ -3,13 +3,13 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const md5 = require('crypto').createHash;
 const db = require('./db');
-const Zalopay = require('./core/zalopay');
+const Zalopay = require('./zalopay');
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 const PORT = 8000;
-app.use(express.static('public'));
+app.use(express.static(__dirname));
 app.get('/api/accounts', async (req, res) => {
     try {
         const accounts = await db.getAccounts();
